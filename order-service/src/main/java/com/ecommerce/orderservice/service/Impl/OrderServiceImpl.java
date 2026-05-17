@@ -8,12 +8,15 @@ import com.ecommerce.orderservice.model.Order;
 import com.ecommerce.orderservice.repository.OrderRepository;
 import com.ecommerce.orderservice.service.OrderService;
 import com.ecommerce.orderservice.service.client.InventoryClient;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,6 +32,11 @@ public class OrderServiceImpl implements OrderService {
 
     @Value("${order.enabled:true}")
     private boolean ordersEnabled;
+
+    public OrderResponse fallbackMethod(OrderRequest orderRequest, String userId, Throwable throwable) {
+        log.error("!!!!!!!!!!!!! Circuit breaker activado {}", throwable.getMessage());
+        return new OrderResponse(0L, "00000", Collections.emptyList());
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -61,6 +69,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
+    @CircuitBreaker(name = "inventory", fallbackMethod = "fallbackMethod" )
     public OrderResponse placeOrder(OrderRequest orderRequest, String userId) {
         if(!ordersEnabled) {
             log.warn("Pedido rechazado. Servicio desabilitado por configuración.");
