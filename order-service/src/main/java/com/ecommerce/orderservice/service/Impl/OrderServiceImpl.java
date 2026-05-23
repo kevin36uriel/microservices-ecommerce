@@ -6,6 +6,7 @@ import com.ecommerce.orderservice.event.OrderPlacedEvent;
 import com.ecommerce.orderservice.exception.ResourceNotFoundException;
 import com.ecommerce.orderservice.mapper.OrderMapper;
 import com.ecommerce.orderservice.model.Order;
+import com.ecommerce.orderservice.model.OrderStatus;
 import com.ecommerce.orderservice.repository.OrderRepository;
 import com.ecommerce.orderservice.service.OrderService;
 import com.ecommerce.orderservice.service.client.InventoryClient;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -75,24 +77,8 @@ public class OrderServiceImpl implements OrderService {
             log.info("Colocando nuevo pedido");
             Order order = orderMapper.toOrder(orderRequest);
             order.setUserId(userId);
-//            for(var item : order.getOrderLineItemsList()){
-//                String sku = item.getSku();
-//                Integer quantity = item.getQuantity();
-//                try{
-////                webClientBuilder.build()
-////                        .put()
-////                        .uri("http://localhost:8083/api/v1/inventory/reduce/" + sku,
-////                                uriBuilder -> uriBuilder.queryParam("quantity", quantity).build())
-////                        .retrieve()
-////                        .bodyToMono(String.class)
-////                        .block();
-//                    inventoryClient.reduceStock(sku, quantity);
-//                }catch (Exception e){
-//                    log.error("Error al reducir stock para el producto {}: {}", sku, e.getMessage());
-//                    throw new IllegalArgumentException("No se pudo procesar el pedido: Stock insuficiente o error de inventario");
-//                }
-//            }
             order.setOrderNumber(UUID.randomUUID().toString());
+            order.setStatus(OrderStatus.PLACED  );
 
             Order savedOrder = orderRepository.save(order);
             log.info("Guardado con exito. ID: {}", savedOrder.getId());
@@ -103,9 +89,7 @@ public class OrderServiceImpl implements OrderService {
                                     item.getSku(), item.getPrice().toString(), item.getQuantity()
                             )).toList();
 
-            OrderPlacedEvent event = new OrderPlacedEvent(
-                    savedOrder.getOrderNumber(), orderRequest.getEmail(), orderItems
-            );
+            OrderPlacedEvent event = new OrderPlacedEvent(savedOrder.getOrderNumber(), orderRequest.getEmail(), orderItems);
             rabbitTemplate.convertAndSend("order-events", "order.placed", event);
             log.info("Enviando pedido a RabbitMQ. NumberOrder: {}", savedOrder.getOrderNumber());
 
@@ -122,5 +106,20 @@ public class OrderServiceImpl implements OrderService {
 
         orderRepository.deleteById(id);
         log.info("Eliminado con exito. ID: {}", id);
+    }
+
+    @Override
+    @Transactional
+    public void updateOrderStatus(String orderNumber, OrderStatus newStatus) {
+        log.info("Actualizando en la base de datos: Orden: {}", orderNumber);
+        Optional<Order> order = orderRepository.findByOrderNumber(orderNumber);
+        if(order.isPresent()) {
+            Order orderToUpdate = order.get();
+            orderToUpdate.setStatus(newStatus);
+            orderRepository.save(orderToUpdate);
+        }else {
+            log.error("No existe el registro con el id: {}", orderNumber);
+            throw new ResourceNotFoundException("Order", "orderNumber", orderNumber);
+        }
     }
 }
