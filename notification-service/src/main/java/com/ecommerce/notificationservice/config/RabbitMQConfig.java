@@ -26,7 +26,7 @@ public class RabbitMQConfig {
         Map<String, Class<?>> idClassMapping = new HashMap<>();
 
         // Tus logs dicen que el Inventario manda 'OrderPlacedEvent' cuando confirma
-        idClassMapping.put("com.ecommerce.inventoryservice.event.OrderPlacedEvent", OrderConfirmedEvent.class);
+        idClassMapping.put("com.ecommerce.inventoryservice.event.OrderConfirmedEvent", OrderConfirmedEvent.class);
 
         // Y manda 'OrderCancelledEvent' cuando falla
         idClassMapping.put("com.ecommerce.inventoryservice.event.OrderCancelledEvent", OrderCancelledEvent.class);

@@ -9,11 +9,13 @@ import com.ecommerce.orderservice.model.Order;
 import com.ecommerce.orderservice.model.OrderStatus;
 import com.ecommerce.orderservice.repository.OrderRepository;
 import com.ecommerce.orderservice.service.OrderService;
+import com.ecommerce.orderservice.service.OutboxService;
 import com.ecommerce.orderservice.service.client.InventoryClient;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
@@ -32,16 +34,17 @@ import java.util.UUID;
 public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final OrderMapper orderMapper;
-//    private final WebClient.Builder webClientBuilder;
+    //    private final WebClient.Builder webClientBuilder;
 //    private final InventoryClient inventoryClient;
     private final RabbitTemplate rabbitTemplate;
+    private final OutboxService outboxService;
 
     @Value("${order.enabled:true}")
     private boolean ordersEnabled;
 
     public OrderResponse fallbackMethod(OrderRequest orderRequest, String userId, Throwable throwable) {
-            log.error("!!!!!!!!!!!!! Circuit breaker activado {}", throwable.getMessage());
-            throw new RuntimeException("El servicio de inventario no responde. Por favor intentelo mas tarde");
+        log.error("!!!!!!!!!!!!! Circuit breaker activado {}", throwable.getMessage());
+        throw new RuntimeException("El servicio de inventario no responde. Por favor intentelo mas tarde");
     }
 
     @Override
@@ -55,9 +58,9 @@ public class OrderServiceImpl implements OrderService {
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrders(String userId, boolean isAdmin) {
         List<Order> orders;
-        if(isAdmin) {
+        if (isAdmin) {
             orders = orderRepository.findAll();
-        }else{
+        } else {
             orders = orderRepository.findByUserId(userId);
         }
         return orders.stream()
@@ -70,37 +73,49 @@ public class OrderServiceImpl implements OrderService {
 //    @CircuitBreaker(name = "inventory", fallbackMethod = "fallbackMethod" )
 //    @Retry(name = "inventory")
     public OrderResponse placeOrder(OrderRequest orderRequest, String userId) {
-            if(!ordersEnabled) {
-                log.warn("Pedido rechazado. Servicio desabilitado por configuración.");
-                throw new RuntimeException("El servicio de pedidos esta actualmente en mantenimient. Intente mas tarder");
-            }
-            log.info("Colocando nuevo pedido");
-            Order order = orderMapper.toOrder(orderRequest);
-            order.setUserId(userId);
-            order.setOrderNumber(UUID.randomUUID().toString());
-            order.setStatus(OrderStatus.PLACED  );
+        if (!ordersEnabled) {
+            log.warn("Pedido rechazado. Servicio desabilitado por configuración.");
+            throw new RuntimeException("El servicio de pedidos esta actualmente en mantenimient. Intente mas tarder");
+        }
+        log.info("Colocando nuevo pedido");
+        Order order = orderMapper.toOrder(orderRequest);
+        order.setUserId(userId);
+        order.setOrderNumber(UUID.randomUUID().toString());
+        order.setStatus(OrderStatus.PLACED);
 
-            Order savedOrder = orderRepository.save(order);
-            log.info("Guardado con exito. ID: {}", savedOrder.getId());
+        Order savedOrder = orderRepository.save(order);
+        log.info("Guardado con exito. ID: {}", savedOrder.getId());
 
-            List<OrderPlacedEvent.OrderItemEvent> orderItems =
-                    order.getOrderLineItemsList().stream()
-                            .map(item -> new OrderPlacedEvent.OrderItemEvent(
-                                    item.getSku(), item.getPrice().toString(), item.getQuantity()
-                            )).toList();
+        List<OrderPlacedEvent.OrderItemEvent> orderItems =
+                order.getOrderLineItemsList().stream()
+                        .map(item -> new OrderPlacedEvent.OrderItemEvent(
+                                item.getSku(), item.getPrice().toString(), item.getQuantity()
+                        )).toList();
 
-            OrderPlacedEvent event = new OrderPlacedEvent(savedOrder.getOrderNumber(), orderRequest.getEmail(), orderItems);
+        OrderPlacedEvent event = new OrderPlacedEvent(savedOrder.getOrderNumber(), orderRequest.getEmail(), orderItems);
+
+        boolean sentToRabbit = false;
+
+        try {
             rabbitTemplate.convertAndSend("order-events", "order.placed", event);
-            log.info("Enviando pedido a RabbitMQ. NumberOrder: {}", savedOrder.getOrderNumber());
+            sentToRabbit = true;
+            log.info("Enviando pedido con exito");
+        } catch (AmqpException e) {
+            log.warn("Rabbit caído, el evento quedará pendiente en outbox");
+        }
 
-            return orderMapper.toOrderResponse(savedOrder);
+        outboxService.saveOrderPlaceEvent(event, sentToRabbit);
+
+        log.info("Enviando pedido a RabbitMQ. NumberOrder: {}", savedOrder.getOrderNumber());
+
+        return orderMapper.toOrderResponse(savedOrder);
 
     }
 
     @Override
     @Transactional
     public void deleteOrder(Long id) {
-        if(!orderRepository.existsById(id)) {
+        if (!orderRepository.existsById(id)) {
             throw new ResourceNotFoundException("Order", "id", id);
         }
 
@@ -113,11 +128,11 @@ public class OrderServiceImpl implements OrderService {
     public void updateOrderStatus(String orderNumber, OrderStatus newStatus) {
         log.info("Actualizando en la base de datos: Orden: {}", orderNumber);
         Optional<Order> order = orderRepository.findByOrderNumber(orderNumber);
-        if(order.isPresent()) {
+        if (order.isPresent()) {
             Order orderToUpdate = order.get();
             orderToUpdate.setStatus(newStatus);
             orderRepository.save(orderToUpdate);
-        }else {
+        } else {
             log.error("No existe el registro con el id: {}", orderNumber);
             throw new ResourceNotFoundException("Order", "orderNumber", orderNumber);
         }
