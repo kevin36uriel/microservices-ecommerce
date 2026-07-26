@@ -14,22 +14,41 @@ import org.springframework.data.mongodb.config.AbstractMongoClientConfiguration;
 public class MongoConfig extends AbstractMongoClientConfiguration {
     // Inyectamos las variables.
     // La sintaxis es: "${NOMBRE_VARIABLE_EN_SPRING}"
-    @Value("${spring.mongodb.host}")
+//    @Value("${spring.mongodb.host}")
+//    private String host;
+//
+//    @Value("${spring.mongodb.port}")
+//    private int port;
+//
+//    @Value("${spring.mongodb.database}")
+//    private String database;
+//
+//    @Value("${spring.mongodb.username}")
+//    private String username;
+//
+//    @Value("${spring.mongodb.password}")
+//    private String password;
+//
+//    @Value("${spring.mongodb.authentication-database}")
+//    private String authDatabase;
+
+
+    @Value("${spring.data.mongodb.host}")
     private String host;
 
-    @Value("${spring.mongodb.port}")
+    @Value("${spring.data.mongodb.port}")
     private int port;
 
-    @Value("${spring.mongodb.database}")
+    @Value("${spring.data.mongodb.database}")
     private String database;
 
-    @Value("${spring.mongodb.username}")
+    @Value("${spring.data.mongodb.username}")
     private String username;
 
-    @Value("${spring.mongodb.password}")
+    @Value("${spring.data.mongodb.password}")
     private String password;
 
-    @Value("${spring.mongodb.authentication-database}")
+    @Value("${spring.data.mongodb.authentication-database}")
     private String authDatabase;
 
     @Override

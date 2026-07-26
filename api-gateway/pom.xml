@@ -86,6 +86,7 @@
 			<artifactId>opentelemetry-logback-appender-1.0</artifactId>
 			<version>2.21.0-alpha</version>
 		</dependency>
+
 	</dependencies>
 	<dependencyManagement>
 		<dependencies>
